@@ -3,11 +3,12 @@
 
 import { useEffect, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
-import CameraFeed from "@/components/camera-feed";
 import { use } from "react";
+import DsaPlayground from "@/components/editor/dsa-editor";
+import { v4 as uuidv4 } from "uuid";
+import Link from "next/link";
+
 
 export default function QuestionPageContent({
     params,
@@ -15,6 +16,28 @@ export default function QuestionPageContent({
     params: Promise<{ category?: string; questionId?: string }>;
 }) {
     // Unwrap the params Promise using React.use()
+    const templates = [
+        "static",
+        "angular",
+        "react",
+        "react-ts",
+        "solid",
+        "svelte",
+        "vanilla-ts",
+        "vanilla",
+        "vue",
+        "vue-ts",
+        "node",
+        "nextjs",
+        "vite",
+        "vite-react",
+        "vite-react-ts",
+        "vite-vue",
+        "vite-vue-ts",
+        "vite-svelte",
+        "vite-svelte-ts",
+        "astro",
+    ];
     const resolvedParams = use(params);
     const { category, questionId } = resolvedParams;
 
@@ -62,64 +85,38 @@ export default function QuestionPageContent({
         ""
     );
 
+    const generateRandomUID = () => {
+        return uuidv4();
+    };
+
     return (
-        <div className="grid grid-cols-2 gap-6 p-6">
-            {/* Left Side - Question Details */}
-            <div className="p-6 border rounded-lg bg-gray-800 text-white">
-                <h2 className="text-2xl font-bold">{question.question_name}</h2>
-
-                {/* Render Markdown with uniform styling */}
-                <div className="mt-4 markdown-body">
-                    <ReactMarkdown
-                        rehypePlugins={[rehypeHighlight]}
-                        components={{
-                            h3: ({ children }) => (
-                                <h3 className="mt-6 text-xl font-bold">{children}</h3>
-                            ),
-                            h4: ({ children }) => (
-                                <h4 className="mt-6 text-lg font-bold text-white">{children}</h4>
-                            ),
-                            h5: ({ children }) => (
-                                <h4 className="mt-6 text-lg font-bold text-white">{children}</h4>
-                            ),
-                            strong: ({ children }) => {
-                                const text = String(children).toLowerCase();
-                                if (["problem statement", "constraints", "example", "input", "output", "explanation", "formula for monthly payment"].includes(text)) {
-                                    return (
-                                        <span className="block mt-6 text-lg font-bold text-white">
-                                            {children}
-                                        </span>
-                                    );
-                                }
-                                return <strong>{children}</strong>;
-                            },
-                            li: ({ children }) => {
-                                return <li className="mt-2">{children}</li>;
-                            },
-                            p: ({ children }) => {
-                                const text = String(children);
-                                if (text.match(/\*\*(M|P|i|n)\*\*/)) {
-                                    return <p className="inline">{children}</p>;
-                                }
-                                return <p className="mt-2">{children}</p>;
-                            },
-                        }}
-                    >
-                        {modifiedContent}
-                    </ReactMarkdown>
+        <>
+            {category === "DSA" ? (
+                <DsaPlayground modifiedContent={modifiedContent} question={question} />
+            ) : (
+                <div className="min-h-screen ">
+                    <div className="flex justify-center my-11">
+                        <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
+                            Choose Playground
+                        </h1>
+                    </div>
+                    <div className="flex justify-center my-10">
+                        <div className="flex flex-wrap gap-11 w-4/5 flex-col  justify-center md:flex-row">
+                            {templates.map((template) => (
+                                <Link
+                                    key={template}
+                                    href={`/interview/give/practice/${category}/${questionId}/code/${template}/${generateRandomUID()}`}
+                                >
+                                    <div className="flex items-center justify-center border rounded-lg hover:shadow-[0_20px_50px_rgba(8,_112,_184,_0.7)] p-4 w-4/5 h-24 m-auto  hover:scale-90  md:w-48">
+                                        <h2 className="text-lg font-semibold">{template}</h2>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-            </div>
-
-            {/* Right Side - Compiler and Camera Feed */}
-            <div className="p-6 border rounded-lg bg-gray-800">
-                {/* Camera Video Feed */}
-                <CameraFeed />
-
-                <p className="text-lg text-white">Your camera feed will be monitored.</p>
-
-                {/* Compiler Section */}
-                <p className="text-xl mt-6">Compiler will be here</p>
-            </div>
-        </div>
+            )
+            }
+        </>
     );
 }

@@ -89,10 +89,16 @@ export default function QuestionPageContent({
         return uuidv4();
     };
 
+    const getLinkPath = (template: string) => {
+        const roomId = generateRandomUID();
+        return `/interview/setup-camera?category=${category}&questionId=${questionId}&template=${template}&roomId=${roomId}`;
+    };
+
     return (
         <>
             {category === "DSA" ? (
-                <DsaPlayground modifiedContent={modifiedContent} question={question} />
+                <DsaPlayground modifiedContent={modifiedContent} question={question} category={category}
+                    questionId={questionId} />
             ) : (
                 <div className="min-h-screen ">
                     <div className="flex justify-center my-11">
@@ -105,7 +111,7 @@ export default function QuestionPageContent({
                             {templates.map((template) => (
                                 <Link
                                     key={template}
-                                    href={`/interview/give/practice/${category}/${questionId}/code/${template}/${generateRandomUID()}`}
+                                    href={getLinkPath(template)}
                                 >
                                     <div className="flex items-center justify-center border rounded-lg hover:shadow-[0_20px_50px_rgba(8,_112,_184,_0.7)] p-4 w-4/5 h-24 m-auto  hover:scale-90  md:w-48">
                                         <h2 className="text-lg font-semibold">{template}</h2>

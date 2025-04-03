@@ -17,6 +17,7 @@ import { getLanguageFromExtension } from "@/utils/getLanguageFromExtension";
 
 interface RealtimeEditorProps {
     roomId: string;
+    username: string;
 }
 
 // Initialize Firebase
@@ -30,7 +31,6 @@ export default function RealtimeEditor(params: RealtimeEditorProps) {
     const [editor, setEditor] =
         useState<monaco.editor.IStandaloneCodeEditor | null>(null);
     const [editorLoaded, setEditorLoaded] = useState(false);
-    const [userName, setUserName] = useState<string>("");
 
     function handleEditorDidMount(editor: monaco.editor.IStandaloneCodeEditor) {
         setEditor(editor);
@@ -54,11 +54,8 @@ export default function RealtimeEditor(params: RealtimeEditorProps) {
             .ref()
             .child(`${params.roomId}/${sanitizedActiveFile}`);
 
-        let name = userName;
-        if (!userName) {
-            const name = prompt("Enter your Name:") ?? "";
-            setUserName(name);
-        }
+        let name = params.username;
+        console.log(name);
 
         console.log(editor);
 
@@ -74,7 +71,7 @@ export default function RealtimeEditor(params: RealtimeEditorProps) {
             userRef.remove();
             firepad.dispose();
         };
-    }, [editorLoaded, params.roomId, sandpack.activeFile, userName, editor]);
+    }, [editorLoaded, params.roomId, sandpack.activeFile, params.username, editor]);
 
     const fileExtension = sandpack.activeFile.split(".").pop();
     const language = getLanguageFromExtension(fileExtension || "");

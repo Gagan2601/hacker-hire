@@ -12,6 +12,8 @@ export default function CameraSetupPage() {
     const searchParams = useSearchParams();
     const category = searchParams.get("category");
     const questionId = searchParams.get("questionId");
+    const template = searchParams.get("template");
+    const roomId = searchParams.get("roomId");
 
     useEffect(() => {
         // Set this page as an active camera page
@@ -23,6 +25,16 @@ export default function CameraSetupPage() {
         };
     }, [setIsActivePage]);
 
+    const handleProceed = () => {
+        if (category?.toLowerCase() === "machine_coding" && template && roomId) {
+            // For machine-coding, proceed to the playground with the selected template and room ID
+            router.push(`/interview/${category}/${questionId}/${template}/${roomId}`);
+        } else {
+            // For other categories, proceed to the regular question page
+            router.push(`/interview/${category}/${questionId}`);
+        }
+    };
+
     return (
         <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
             <p className="text-lg mb-4">{stream ? "Camera Ready" : "Initializing camera..."}</p>
@@ -31,7 +43,7 @@ export default function CameraSetupPage() {
 
             {stream && category && questionId && (
                 <button
-                    onClick={() => router.push(`/interview/give/practice/${category}/${questionId}`)}
+                    onClick={handleProceed}
                     className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                     Proceed to Question

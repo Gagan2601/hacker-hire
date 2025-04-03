@@ -1,4 +1,3 @@
-// components/camera-feed.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +14,12 @@ export default function CameraFeed() {
     const isFixedPage = pathname === "/interview/setup-camera";
     const aspectRatio = 320 / 240;
 
+    // Add debugging to track component behavior
+    useEffect(() => {
+        console.log("CameraFeed rendered, isActivePage:", isActivePage);
+        console.log("Current pathname:", pathname);
+    }, [isActivePage, pathname]);
+
     useEffect(() => {
         const startCamera = async () => {
             if (!stream && isActivePage) {
@@ -22,6 +27,7 @@ export default function CameraFeed() {
                     console.log("Starting camera...");
                     const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
                     setStream(newStream);
+                    console.log("Camera started successfully");
                 } catch (err) {
                     console.error("Error accessing camera:", err);
                 }
@@ -30,8 +36,12 @@ export default function CameraFeed() {
 
         startCamera();
 
+        // This cleanup function is important
         return () => {
+            // Only stop the stream if we're navigating to a page that doesn't need the camera
+            // and the component is actually unmounting
             if (!isActivePage && stream) {
+                console.log("Stopping camera stream on component unmount");
                 stopStream();
             }
         };
@@ -41,15 +51,26 @@ export default function CameraFeed() {
         if (videoRef.current && stream) {
             if (videoRef.current.srcObject !== stream) {
                 videoRef.current.srcObject = stream;
+                console.log("Set video stream to element");
             }
         }
     }, [stream]);
 
-    if (!isActivePage) return null;
+    // Don't render anything if this page shouldn't have a camera
+    if (!isActivePage) {
+        console.log("Not rendering camera feed because page is not active");
+        return null;
+    }
 
     return isFixedPage ? (
         <div className="w-full max-w-md">
-            <video ref={videoRef} autoPlay playsInline className="w-full h-auto rounded-lg" />
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-auto rounded-lg"
+                muted // Add muted to prevent autoplay issues
+            />
         </div>
     ) : (
         <div className="w-full max-w-md">
@@ -74,13 +95,19 @@ export default function CameraFeed() {
                     bottomRight: true,
                 }}
                 enabledragging="true"
-                className="border border-white shadow-lg rounded-lg"
+                className="border border-white shadow-lg rounded-lg overflow-hidden"
                 style={{ position: "absolute", zIndex: 1000, cursor: "grab" }}
                 minWidth={320}
                 minHeight={240}
                 lockAspectRatio
             >
-                <video ref={videoRef} autoPlay playsInline className="w-full h-auto rounded-lg" />
+                <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover rounded-lg"
+                    muted // Add muted to prevent autoplay issues
+                />
             </Rnd>
         </div>
     );

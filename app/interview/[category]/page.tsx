@@ -29,7 +29,12 @@ export default async function QuestionsPage({
                 {questions.map((q) => (
                     <Link
                         key={q.id}
-                        href={`/interview/setup-camera?category=${q.question_category}&questionId=${q.id}`}
+                        href={
+                            // Special routing for machine-coding category
+                            category.toLowerCase() === "machine_coding"
+                                ? `/interview/${q.question_category}/${q.id}`
+                                : `/interview/setup-camera?category=${q.question_category}&questionId=${q.id}`
+                        }
                     >
                         <div className="p-4 border rounded-lg hover:bg-gray-100 cursor-pointer">
                             {q.question_name}

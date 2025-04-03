@@ -39,6 +39,66 @@ export const signUpAction = async (formData: FormData) => {
   }
 };
 
+export const setUsernameAction = async (formData: FormData) => {
+  const username = formData.get("username") as string;
+  const supabase = await createClient();
+
+  // Get the authenticated user
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (!userData?.user || userError) {
+    return encodedRedirect("error", "/sign-in", "User not authenticated");
+  }
+
+  const userId = userData.user.id;
+  const email = userData.user.email; // Storing email for reference
+
+  // Check if the username is already taken
+  const { data: existingUsername } = await supabase
+    .from("users")
+    .select("id")
+    .eq("username", username)
+    .single();
+
+  if (existingUsername) {
+    return encodedRedirect(
+      "error",
+      "/set-username",
+      "Username is already taken."
+    );
+  }
+
+  // Check if user already exists in `users` table
+  const { data: existingUser } = await supabase
+    .from("users")
+    .select("id")
+    .eq("id", userId)
+    .single();
+
+  if (existingUser) {
+    return encodedRedirect(
+      "error",
+      "/set-username",
+      "Username is already set."
+    );
+  }
+
+  // Insert new user with username
+  const { error: insertError } = await supabase.from("users").insert([
+    {
+      id: userId,
+      email, // Store email for reference
+      username,
+    },
+  ]);
+
+  if (insertError) {
+    console.error("Insert User Error:", insertError.message);
+    return encodedRedirect("error", "/set-username", "Failed to set username.");
+  }
+
+  return redirect("/");
+};
+
 export const signInAction = async (formData: FormData) => {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
@@ -51,6 +111,23 @@ export const signInAction = async (formData: FormData) => {
 
   if (error) {
     return encodedRedirect("error", "/sign-in", error.message);
+  }
+
+  // Get the authenticated user
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) {
+    return encodedRedirect("error", "/sign-in", "Failed to get user data");
+  }
+
+  // Check if the user has a username set
+  const { data: profile } = await supabase
+    .from("users")
+    .select("username")
+    .eq("id", userData.user.id)
+    .single();
+
+  if (!profile?.username) {
+    return redirect("/set-username");
   }
 
   return redirect("/");

@@ -37,17 +37,28 @@ import firebaseConfig from "@/config/firebaseConfig";
 // Types for monaco editor - import but don't use directly during SSR
 import type * as monacoTypes from "monaco-editor";
 import CameraFeed from "../camera-feed";
+import { CopyURLButton } from "../copy-url-button";
+import { useAuthStore } from "@/store/useAuthStore";
+import { useCameraStore } from "@/store/useCameraStore";
+import { redirect } from "next/navigation";
+import { Button } from "../ui/button";
 
 interface DsaPlaygroundProps {
     modifiedContent: string;
     question?: any; // Optional, in case you need question details
+    category: string;
+    questionId?: string;
 }
 
-const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question }) => {
+const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question, category, questionId }) => {
     // Editor and realtime collaboration state
+    const { isActivePage } = useCameraStore();
+    if (!isActivePage) {
+        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}`)
+    }
     const [editor, setEditor] = useState<monacoTypes.editor.IStandaloneCodeEditor | null>(null);
     const [editorLoaded, setEditorLoaded] = useState(false);
-    const [userName, setUserName] = useState<string>("");
+    const { username } = useAuthStore();
     // Default code uses JavaScript
     const [code, setCode] = useState<string>(
         "// Write your solution here\nconsole.log('harsha');"
@@ -62,6 +73,12 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
     // Judge0 integration: Input and output state
     const [input, setInput] = useState<string>("");
     const [output, setOutput] = useState<string>("");
+    const [showCamera, setShowCamera] = useState(true);
+
+    const toggleCamera = () => {
+        setShowCamera((prev) => !prev);
+    };
+
 
     // Room id for collaboration
     const roomId = "dsa-room-1234";
@@ -101,14 +118,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         initFirebase();
     }, []);
 
-    // Get user name if not already set
-    useEffect(() => {
-        if (!userName) {
-            const name = prompt("Enter your Name:") || "Anonymous";
-            setUserName(name);
-        }
-    }, [userName]);
-
     // Function to initialize Firepad - only called when both editor and firebase are ready
     const initializeFirepad = async () => {
         if (!editor || !firebaseInstance) return;
@@ -122,10 +131,9 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             const dbRef = firebaseInstance.database().ref(`${roomId}/${sanitizedKey}`);
 
             // Use the username already set
-            let name = userName;
+            let name = username;
             if (!name) {
-                name = "Anonymous";
-                setUserName(name);
+                name = "User";
             }
 
             console.log("Initializing Firepad with editor and DB reference");
@@ -338,18 +346,28 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                     </Select>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                    <button
+                                    <Button
+                                        onClick={toggleCamera}
+                                        variant="destructive"
+                                        className=" hover:shadow-[0_20px_50px_rgba(255,0,0,0.7)]"
+                                    >
+                                        {showCamera ? "Hide Camera" : "Show Camera"}
+                                    </Button>
+                                    <Button
                                         onClick={toggleWhiteboard}
-                                        className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+                                        variant="secondary"
+                                        className="m-2 hover:shadow-[0_20px_50px_rgba(0,0,255,0.7)]"
                                     >
                                         Whiteboard
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <CopyURLButton className="m-2 hover:shadow-[0_20px_50px_rgba(0,255,0,0.7)]" />
+                                    <Button
                                         onClick={runCode}
-                                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                                        variant="default"
+                                        className="m-2 hover:shadow-[0_20px_50px_rgba(255,255,255,0.7)]"
                                     >
                                         Run Code
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                             {/* Dynamic import of Editor to ensure it only renders on client */}
@@ -398,7 +416,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 </ResizablePanel>
             </ResizablePanelGroup>
             <div className="absolute top-10 left-10 cursor-move z-50">
-                <CameraFeed />
+                {showCamera && <CameraFeed />}
             </div>
             <Dialog open={whiteboardOpen} onOpenChange={setWhiteboardOpen}>
                 <DialogContent className="max-w-[95vw] w-3/4 max-h-[90vh] h-[90vh] p-0 overflow-hidden">
@@ -407,7 +425,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                     </DialogHeader>
                     <div className="w-full h-[calc(90vh-60px)] overflow-hidden">
                         {whiteboardOpen && (
-                            <WhiteBoard roomId={roomId} username={userName} />
+                            <WhiteBoard roomId={roomId} username={username ?? "User"} />
                         )}
                     </div>
                 </DialogContent>

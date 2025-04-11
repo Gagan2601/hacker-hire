@@ -25,7 +25,7 @@ const WhiteBoard = dynamic(
 );
 import { SANDBOX_TEMPLATES } from "@codesandbox/sandpack-react";
 import { CopyURLButton } from "@/components/copy-url-button";
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import CameraFeed from "@/components/camera-feed";
 import dynamic from "next/dynamic";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
@@ -33,6 +33,7 @@ import { useCameraStore } from "@/store/useCameraStore";
 import { redirect, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
+import { io, Socket } from "socket.io-client";
 
 interface MachineCodingPlaygroundProps {
     params: Promise<{ slug: [TemplateType, string], category: string, questionId: string; }>;
@@ -64,6 +65,12 @@ export default function MachineCodingPlayground({
 
     const { setIsActivePage } = useCameraStore();
 
+    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+    const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
+    const socketRef = useRef<Socket | null>(null);
+
     const toggleCamera = () => {
         setShowCamera((prev) => !prev);
     };
@@ -84,6 +91,96 @@ export default function MachineCodingPlayground({
             // The actual stream cleanup happens in camera-feed.tsx
         };
     }, [setIsActivePage]);
+
+    useEffect(() => {
+        const startLocalStream = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                setLocalStream(stream);
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+            }
+        };
+
+        startLocalStream();
+    }, []);
+
+    useEffect(() => {
+        if (!localStream) return;
+
+        const socket = io({
+            path: '/api/socketio',
+        });
+        socketRef.current = socket;
+
+        const pc = new RTCPeerConnection({
+            iceServers: [
+                {
+                    urls: "stun:stun.l.google.com:19302",
+                },
+            ],
+        });
+
+        localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit("ice-candidate", { roomId, candidate: event.candidate });
+            }
+        };
+
+        pc.ontrack = (event) => {
+            const [remoteStream] = event.streams;
+            setRemoteStream(remoteStream);
+        };
+
+        peerConnectionRef.current = pc;
+        setPeerConnection(pc);
+
+        socket.emit("join-room", roomId);
+
+        socket.on("user-joined", async (socketId) => {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(new RTCSessionDescription(offer));
+            socket.emit("offer", { roomId, offer });
+        });
+
+        socket.on("offer", async (data) => {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(new RTCSessionDescription(answer));
+            socket.emit("answer", { roomId, answer });
+        });
+
+        socket.on("answer", async (data) => {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        });
+
+        socket.on("ice-candidate", async (data) => {
+            try {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } catch (e) {
+                console.error("Error adding received ice candidate", e);
+            }
+        });
+
+        socket.on("user-disconnected", () => {
+            if (peerConnectionRef.current) {
+                peerConnectionRef.current.close();
+            }
+        });
+
+        return () => {
+            if (peerConnectionRef.current) {
+                peerConnectionRef.current.close();
+            }
+            socket.off("user-joined");
+            socket.off("offer");
+            socket.off("answer");
+            socket.off("ice-candidate");
+            socket.off("user-disconnected");
+        };
+    }, [localStream]);
 
     useEffect(() => {
         async function loadQuestion() {
@@ -147,14 +244,14 @@ export default function MachineCodingPlayground({
     return (
         <div className="flex h-screen">
             <div className="absolute top-10 left-10 cursor-move z-50">
-                {showCamera && <CameraFeed />}
+                {showCamera && <CameraFeed localStream={localStream} remoteStream={remoteStream} />}
             </div>
             <div className="hidden sm:block">
                 <div className=" place-self-end">
                     <Button
                         onClick={toggleCamera}
                         variant="destructive"
-                        className=" hover:shadow-[0_20px_50px_rgba(255,0,0,0.7)]"
+                        className="m-2 hover:shadow-[0_20px_50px_rgba(255,0,0,0.7)]"
                     >
                         {showCamera ? "Hide Camera" : "Show Camera"}
                     </Button>

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import dynamic from 'next/dynamic';
+import { io, Socket } from "socket.io-client";
 
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -48,29 +49,32 @@ interface DsaPlaygroundProps {
     question?: any; // Optional, in case you need question details
     category: string;
     questionId?: string;
+    roomId?: string;
 }
 
-const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question, category, questionId }) => {
+const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question, category, questionId, roomId }) => {
     // Editor and realtime collaboration state
     const { isActivePage } = useCameraStore();
     if (!isActivePage) {
-        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}`)
+        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&roomId=${roomId}`)
     }
     const [editor, setEditor] = useState<monacoTypes.editor.IStandaloneCodeEditor | null>(null);
     const [editorLoaded, setEditorLoaded] = useState(false);
     const { username } = useAuthStore();
-    // Default code uses JavaScript
     const [code, setCode] = useState<string>(
-        "// Write your solution here\nconsole.log('harsha');"
+        "// Write your solution here\nconsole.log('hello!!');"
     );
-    // Default language is set to javascript
     const [language, setLanguage] = useState<string>("javascript");
-    // Track firepad instance
     const [firepad, setFirepad] = useState<any>(null);
-    // Track firebase instance
     const [firebaseInstance, setFirebaseInstance] = useState<any>(null);
 
-    // Judge0 integration: Input and output state
+    // WebRTC state
+    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+    const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
+    const socketRef = useRef<Socket | null>(null);
+
     const [input, setInput] = useState<string>("");
     const [output, setOutput] = useState<string>("");
     const [showCamera, setShowCamera] = useState(true);
@@ -78,32 +82,21 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
     const toggleCamera = () => {
         setShowCamera((prev) => !prev);
     };
-
-
-    // Room id for collaboration
-    const roomId = "dsa-room-1234";
-
-    // Whiteboard modal state
     const [whiteboardOpen, setWhiteboardOpen] = useState(false);
 
-    // Updated onMount function with proper typing
     function handleEditorDidMount(editorInstance: monacoTypes.editor.IStandaloneCodeEditor) {
-        // Make sure the editor is not read-only
         editorInstance.updateOptions({ readOnly: false });
         setEditor(editorInstance);
         setEditorLoaded(true);
         console.log("Editor mounted successfully");
     }
 
-    // Initialize Firebase
     useEffect(() => {
         const initFirebase = async () => {
             try {
-                // Dynamically import firebase only on client side
                 const firebase = (await import('firebase/app')).default;
                 await import('firebase/database');
 
-                // Initialize Firebase if not already initialized
                 if (!firebase.apps.length) {
                     firebase.initializeApp(firebaseConfig);
                 }
@@ -118,37 +111,25 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         initFirebase();
     }, []);
 
-    // Function to initialize Firepad - only called when both editor and firebase are ready
     const initializeFirepad = async () => {
         if (!editor || !firebaseInstance) return;
 
         try {
-            // Dynamically import firepad
             const { fromMonaco } = await import('@hackerrank/firepad');
-
-            // Use a sanitized key for the file reference
             const sanitizedKey = "dsa-code".replace(/[\\.#$\\[\\\]]/g, "");
             const dbRef = firebaseInstance.database().ref(`${roomId}/${sanitizedKey}`);
 
-            // Use the username already set
             let name = username;
             if (!name) {
                 name = "User";
             }
 
             console.log("Initializing Firepad with editor and DB reference");
-
-            // Make sure editor is not read-only before initializing Firepad
             editor.updateOptions({ readOnly: false });
-
-            // Initialize Firepad with the editor and DB reference
             const newFirepad = fromMonaco(dbRef, editor);
             newFirepad.setUserName(name);
-
-            // Store firepad instance
             setFirepad(newFirepad);
 
-            // Set text if editor is empty
             if (editor.getValue().trim() === "") {
                 editor.setValue(code);
             }
@@ -157,11 +138,9 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         }
     };
 
-    // Handle language change
     const handleLanguageChange = (newLanguage: string) => {
         setLanguage(newLanguage);
 
-        // If firepad exists, we need to dispose of it and recreate
         if (firepad && firebaseInstance) {
             const userId = firepad.getConfiguration("userId");
             const sanitizedKey = "dsa-code".replace(/[\\.#$\\[\\\]]/g, "");
@@ -170,7 +149,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             firepad.dispose();
             setFirepad(null);
 
-            // Reconnect with the new language
             if (editor) {
                 editor.updateOptions({ readOnly: false });
                 initializeFirepad();
@@ -178,17 +156,14 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         }
     };
 
-    // useEffect for Firepad integration, runs when editor is loaded and firebase is ready
     useEffect(() => {
         if (!editorLoaded || !editor || !firebaseInstance) {
             console.log("Editor or Firebase not loaded yet");
             return;
         }
 
-        // Initialize Firepad
         initializeFirepad();
 
-        // Cleanup function
         return () => {
             if (firepad && firebaseInstance) {
                 try {
@@ -204,17 +179,13 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         };
     }, [editorLoaded, editor, firebaseInstance]);
 
-    // Handle code changes
     const handleCodeChange = (value: string | undefined) => {
         setCode(value || "");
     };
 
-    // Run code using Judge0 via Rapid API
     async function runCode() {
-        // Get code directly from editor to ensure we have the latest
         const currentCode = editor ? editor.getValue() : code;
 
-        // Map language to Judge0 language id
         const languageMapping: { [key: string]: number } = {
             javascript: 63,
             cpp: 52,
@@ -223,12 +194,9 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         };
 
         const languageId = languageMapping[language] || 63;
-
-        // Base64 encode source code and input
         const encodedSourceCode = btoa(currentCode);
         const encodedInput = btoa(input);
 
-        // Build the request payload
         const body = {
             source_code: encodedSourceCode,
             language_id: languageId,
@@ -246,7 +214,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                         "Content-Type": "application/json",
                         "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
                         "x-rapidapi-key":
-                            process.env.NEXT_PUBLIC_JUDGE0_API_KEY || "", // Replace with your Rapid API key
+                            process.env.NEXT_PUBLIC_JUDGE0_API_KEY || "",
                     },
                     body: JSON.stringify(body),
                 }
@@ -254,7 +222,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
             const data = await response.json();
 
-            // Handle different types of output
             if (data.stdout) {
                 setOutput(atob(data.stdout));
             } else if (data.compile_output) {
@@ -270,16 +237,105 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         }
     };
 
-    // Toggle whiteboard modal
     const toggleWhiteboard = () => {
         setWhiteboardOpen(!whiteboardOpen);
     };
+
+    useEffect(() => {
+        const startLocalStream = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                setLocalStream(stream);
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+            }
+        };
+
+        startLocalStream();
+    }, []);
+
+    useEffect(() => {
+        if (!localStream) return;
+
+        const socket = io({
+            path: '/api/socketio',
+        });
+        socketRef.current = socket;
+
+        const pc = new RTCPeerConnection({
+            iceServers: [
+                {
+                    urls: "stun:stun.l.google.com:19302",
+                },
+            ],
+        });
+
+        localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit("ice-candidate", { roomId, candidate: event.candidate });
+            }
+        };
+
+        pc.ontrack = (event) => {
+            const [remoteStream] = event.streams;
+            setRemoteStream(remoteStream);
+        };
+
+        peerConnectionRef.current = pc;
+        setPeerConnection(pc);
+
+        socket.emit("join-room", roomId);
+
+        socket.on("user-joined", async (socketId) => {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(new RTCSessionDescription(offer));
+            socket.emit("offer", { roomId, offer });
+        });
+
+        socket.on("offer", async (data) => {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(new RTCSessionDescription(answer));
+            socket.emit("answer", { roomId, answer });
+        });
+
+        socket.on("answer", async (data) => {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        });
+
+        socket.on("ice-candidate", async (data) => {
+            try {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } catch (e) {
+                console.error("Error adding received ice candidate", e);
+            }
+        });
+
+        socket.on("user-disconnected", () => {
+            if (peerConnectionRef.current) {
+                peerConnectionRef.current.close();
+            }
+        });
+
+        return () => {
+            if (peerConnectionRef.current) {
+                peerConnectionRef.current.close();
+            }
+            socket.off("user-joined");
+            socket.off("offer");
+            socket.off("answer");
+            socket.off("ice-candidate");
+            socket.off("user-disconnected");
+        };
+    }, [localStream]);
 
     return (
         <div className="flex h-screen">
             <ResizablePanelGroup direction="horizontal" className="flex h-full w-full">
                 <ResizablePanel className="w-1/4 border p-4 overflow-y-auto">
-                    <h2 className="text-2xl font-bold">{question.question_name}</h2>
+                    <h2 className="text-2xl font-bold">{question?.question_name}</h2>
 
                     <ReactMarkdown
                         rehypePlugins={[rehypeHighlight]}
@@ -291,7 +347,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                 <h4 className="mt-6 text-lg font-bold text-white">{children}</h4>
                             ),
                             h5: ({ children }) => (
-                                <h4 className="mt-6 text-lg font-bold text-white">{children}</h4>
+                                <h5 className="mt-6 text-lg font-bold text-white">{children}</h5>
                             ),
                             strong: ({ children }) => {
                                 const text = String(children).toLowerCase();
@@ -370,7 +426,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                     </Button>
                                 </div>
                             </div>
-                            {/* Dynamic import of Editor to ensure it only renders on client */}
                             <div style={{ height: "calc(100% - 40px)" }}>
                                 {typeof window !== "undefined" && (
                                     <Editor
@@ -416,7 +471,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 </ResizablePanel>
             </ResizablePanelGroup>
             <div className="absolute top-10 left-10 cursor-move z-50">
-                {showCamera && <CameraFeed />}
+                {showCamera && <CameraFeed localStream={localStream} remoteStream={remoteStream} />}
             </div>
             <Dialog open={whiteboardOpen} onOpenChange={setWhiteboardOpen}>
                 <DialogContent className="max-w-[95vw] w-3/4 max-h-[90vh] h-[90vh] p-0 overflow-hidden">
@@ -425,7 +480,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                     </DialogHeader>
                     <div className="w-full h-[calc(90vh-60px)] overflow-hidden">
                         {whiteboardOpen && (
-                            <WhiteBoard roomId={roomId} username={username ?? "User"} />
+                            <WhiteBoard roomId={roomId || ''} username={username ?? "User"} />
                         )}
                     </div>
                 </DialogContent>

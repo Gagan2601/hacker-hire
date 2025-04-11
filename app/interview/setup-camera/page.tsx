@@ -10,10 +10,10 @@ export default function CameraSetupPage() {
     const { stream, setIsActivePage } = useCameraStore();
     const router = useRouter();
     const searchParams = useSearchParams();
-    const category = searchParams.get("category");
-    const questionId = searchParams.get("questionId");
-    const template = searchParams.get("template");
-    const roomId = searchParams.get("roomId");
+    const category = searchParams?.get("category");
+    const questionId = searchParams?.get("questionId");
+    const template = searchParams?.get("template");
+    const roomId = searchParams?.get("roomId");
 
     useEffect(() => {
         // Set this page as an active camera page
@@ -31,7 +31,7 @@ export default function CameraSetupPage() {
             router.push(`/interview/${category}/${questionId}/${template}/${roomId}`);
         } else {
             // For other categories, proceed to the regular question page
-            router.push(`/interview/${category}/${questionId}`);
+            router.push(`/interview/${category}/${questionId}/${roomId}`);
         }
     };
 
@@ -39,7 +39,7 @@ export default function CameraSetupPage() {
         <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
             <p className="text-lg mb-4">{stream ? "Camera Ready" : "Initializing camera..."}</p>
 
-            <CameraFeed />
+            <CameraFeed localStream={null} remoteStream={null} />
 
             {stream && category && questionId && (
                 <button

@@ -1,21 +1,16 @@
-// app/interview/give/practice/[category]/[questionId]/QuestionPageContent.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import "highlight.js/styles/github-dark.css";
-import { use } from "react";
 import DsaPlayground from "@/components/editor/dsa-editor";
-import { v4 as uuidv4 } from "uuid";
 import Link from "next/link";
-
 
 export default function QuestionPageContent({
     params,
 }: {
-    params: Promise<{ category?: string; questionId?: string }>;
+    params: { category?: string; questionId?: string; roomId?: string };
 }) {
-    // Unwrap the params Promise using React.use()
     const templates = [
         "static",
         "angular",
@@ -38,8 +33,7 @@ export default function QuestionPageContent({
         "vite-svelte-ts",
         "astro",
     ];
-    const resolvedParams = use(params);
-    const { category, questionId } = resolvedParams;
+    const { category, questionId, roomId } = params;
 
     const [question, setQuestion] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -85,12 +79,7 @@ export default function QuestionPageContent({
         ""
     );
 
-    const generateRandomUID = () => {
-        return uuidv4();
-    };
-
     const getLinkPath = (template: string) => {
-        const roomId = generateRandomUID();
         return `/interview/setup-camera?category=${category}&questionId=${questionId}&template=${template}&roomId=${roomId}`;
     };
 
@@ -98,7 +87,7 @@ export default function QuestionPageContent({
         <>
             {category === "DSA" ? (
                 <DsaPlayground modifiedContent={modifiedContent} question={question} category={category}
-                    questionId={questionId} />
+                    questionId={questionId} roomId={roomId} />
             ) : (
                 <div className="min-h-screen ">
                     <div className="flex justify-center my-11">

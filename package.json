@@ -23,6 +23,7 @@
     "autoprefixer": "10.4.20",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "face-api.js": "^0.22.2",
     "firebase": "^8.10.1",
     "lucide-react": "^0.468.0",
     "monaco-editor": "^0.52.2",
@@ -36,6 +37,8 @@
     "react-resizable-panels": "^2.1.7",
     "react-rnd": "^10.5.2",
     "rehype-highlight": "^7.0.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "tldraw": "^3.11.0",
     "uuid": "^11.1.0",
     "zustand": "^5.0.3"

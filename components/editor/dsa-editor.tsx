@@ -43,6 +43,8 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { useCameraStore } from "@/store/useCameraStore";
 import { redirect } from "next/navigation";
 import { Button } from "../ui/button";
+import { useRouter } from "next/navigation";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 interface DsaPlaygroundProps {
     modifiedContent: string;
@@ -55,6 +57,7 @@ interface DsaPlaygroundProps {
 const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question, category, questionId, roomId }) => {
     // Editor and realtime collaboration state
     const { isActivePage } = useCameraStore();
+    const router = useRouter();
     if (!isActivePage) {
         redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&roomId=${roomId}`)
     }
@@ -78,6 +81,8 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
     const [input, setInput] = useState<string>("");
     const [output, setOutput] = useState<string>("");
     const [showCamera, setShowCamera] = useState(true);
+    const [role, setRole] = useState("");
+    const [isCleared, setIsCleared] = useState(false);
 
     const toggleCamera = () => {
         setShowCamera((prev) => !prev);
@@ -288,6 +293,13 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
         socket.emit("join-room", roomId);
 
+        socket.on("room-info", (roomInfo) => {
+            const userCount = roomInfo.userCount;
+            const role = userCount === 1 ? "Interviewer" : "Candidate";
+            setRole(role); // New state to store role
+            console.log(role);
+        });
+
         socket.on("user-joined", async (socketId) => {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(new RTCSessionDescription(offer));
@@ -330,6 +342,35 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             socket.off("user-disconnected");
         };
     }, [localStream]);
+
+    const handleSubmitReport = async () => {
+        const supabase = createClientComponentClient();
+        const report = {
+            interviewer_name: role === "Interviewer" ? username : "",
+            candidate_name: role === "Candidate" ? username : "",
+            question_name: question?.question_name || "",
+            is_cleared: isCleared
+        };
+
+        const { data, error } = await supabase
+            .from("reports")
+            .insert([report])
+            .select("*") // Fetch the inserted row
+            .single();
+
+        if (error) {
+            console.error("Failed to submit report:", error.message);
+            return;
+        }
+
+        if (!data?.id) {
+            console.error("Failed to retrieve report ID after insert.");
+            return;
+        }
+
+        // Navigate to the reports page with the report ID
+        router.push(`/reports/${data.id}`);
+    };
 
     return (
         <div className="flex h-screen">
@@ -423,6 +464,13 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                         className="m-2 hover:shadow-[0_20px_50px_rgba(255,255,255,0.7)]"
                                     >
                                         Run Code
+                                    </Button>
+                                    <Button
+                                        onClick={handleSubmitReport}
+                                        variant="default"
+                                        className="m-2 hover:shadow-[0_20px_50px_rgba(255,255,255,0.7)]"
+                                    >
+                                        Submit
                                     </Button>
                                 </div>
                             </div>

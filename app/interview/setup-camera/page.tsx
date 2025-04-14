@@ -1,12 +1,12 @@
 // app/interview/setup-camera/page.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraFeed from "@/components/camera-feed";
 import { useCameraStore } from "@/store/useCameraStore";
 
-export default function CameraSetupPage() {
+function CameraSetupContent() {
     const { stream, setIsActivePage } = useCameraStore();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -50,5 +50,13 @@ export default function CameraSetupPage() {
                 </button>
             )}
         </div>
+    );
+}
+
+export default function CameraSetupPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-screen bg-black text-white">Loading...</div>}>
+            <CameraSetupContent />
+        </Suspense>
     );
 }

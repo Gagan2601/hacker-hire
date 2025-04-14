@@ -1,44 +1,29 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default function SingleReport() {
-    const { id } = useParams();
-    const [report, setReport] = useState<any | null>(null);
-    const [loading, setLoading] = useState(true);
+interface PageProps {
+    params: Promise<{ id: string }>;
+}
 
-    useEffect(() => {
-        if (!id) return;
+export default async function SingleReport({ params }: PageProps) {
+    const { id } = await params;
 
-        async function fetchReport() {
-            const { data, error } = await supabase
-                .from("reports")
-                .select("*")
-                .eq("id", id)
-                .single();
-            if (error) console.error(error);
-            else setReport(data);
-            setLoading(false);
-        }
-
-        fetchReport();
-    }, [id]);
-
-    if (loading) {
-        return <Skeleton className="h-40 w-full my-4" />;
+    if (!id) {
+        return <p className="text-center text-red-600">Report not found.</p>;
     }
 
-    if (!report) {
+    const { data: report, error } = await supabase
+        .from("reports")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+    if (error || !report) {
         return <p className="text-center text-red-600">Report not found.</p>;
     }
 
@@ -52,18 +37,8 @@ export default function SingleReport() {
                     <div className="mb-4">
                         <p className="text-lg font-bold text-blue-700">Interviewer: {report.interviewer_name}</p>
                         <p className="text-lg font-bold text-green-700">Candidate: {report.candidate_name}</p>
-                    </div>
-                    <div className="mb-4">
-                        <p className="text-lg">
-                            <span className="font-semibold">Score: </span>
-                            <Badge className={`px-3 py-1 rounded-full ${report.score >= 80 ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
-                                {report.score}
-                            </Badge>
-                        </p>
-                    </div>
-                    <div>
-                        <p className="text-lg font-semibold">Feedback:</p>
-                        <p className="text-gray-400">{report.feedback}</p>
+                        <p className="text-lg font-bold text-green-700">Question: {report.question_name}</p>
+                        <p className="text-lg font-bold text-green-700">Cleared: {report.is_cleared ? "Yes" : "No"}</p>
                     </div>
                 </CardContent>
             </Card>

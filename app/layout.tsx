@@ -10,6 +10,12 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
+export const metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
+  title: "Hacker Hire",
+  description: "Interview platform for coding and technical assessments",
+};
+
 export default async function RootLayout({
   children,
 }: Readonly<{

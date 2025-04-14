@@ -27,6 +27,8 @@ export default function handler(
     io.on("connection", (socket) => {
       socket.on("join-room", (roomId) => {
         socket.join(roomId);
+        const userCount = io?.sockets.adapter.rooms.get(roomId)?.size || 0;
+        io?.to(roomId).emit("room-info", { userCount });
         socket.to(roomId).emit("user-joined", socket.id);
       });
 

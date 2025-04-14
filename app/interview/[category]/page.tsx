@@ -47,7 +47,7 @@ export default async function QuestionsPage({ params }: PageProps) {
                         key={q.id}
                         href={
                             decodedCategory.toLowerCase() === "machine_coding"
-                                ? `/interview/${q.question_category}/${q.id}`
+                                ? `/interview/${q.question_category}/${q.id}/${roomId}`
                                 : `/interview/setup-camera?category=${q.question_category}&questionId=${q.id}&roomId=${roomId}`
                         }
                     >

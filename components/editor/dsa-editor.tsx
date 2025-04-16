@@ -271,34 +271,55 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
     }, []);
 
     useEffect(() => {
-        if (!localStream) return;
+        if (!localStream || !roomId) {
+            console.warn("Skipping socket initialization: missing localStream or roomId", { localStream, roomId });
+            return;
+        }
 
         const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000", {
-            path: '/socketio',
+            path: "/socketio",
+            transports: ["websocket", "polling"],
         });
         socketRef.current = socket;
 
-        const pc = new RTCPeerConnection({
-            iceServers: [
-                {
-                    urls: "stun:stun.l.google.com:19302",
-                },
-            ],
+        socket.on("connect", () => {
+            console.log("Socket.IO connected to", process.env.NEXT_PUBLIC_SOCKET_URL);
+        });
+        socket.on("connect_error", (error) => {
+            console.error("Socket.IO connection error:", error.message);
+        });
+        socket.on("disconnect", (reason) => {
+            console.log("Socket.IO disconnected:", reason);
         });
 
-        localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+        // Function to create a new RTCPeerConnection
+        const createPeerConnection = () => {
+            const pc = new RTCPeerConnection({
+                iceServers: [
+                    {
+                        urls: "stun:stun.l.google.com:19302",
+                    },
+                ],
+            });
 
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit("ice-candidate", { roomId, candidate: event.candidate });
-            }
+            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit("ice-candidate", { roomId, candidate: event.candidate });
+                }
+            };
+
+            pc.ontrack = (event) => {
+                const [remoteStream] = event.streams;
+                setRemoteStream(remoteStream);
+            };
+
+            return pc;
         };
 
-        pc.ontrack = (event) => {
-            const [remoteStream] = event.streams;
-            setRemoteStream(remoteStream);
-        };
-
+        // Initialize first peer connection
+        let pc = createPeerConnection();
         peerConnectionRef.current = pc;
         setPeerConnection(pc);
 
@@ -307,52 +328,93 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         socket.on("room-info", (roomInfo) => {
             const userCount = roomInfo.userCount;
             const role = userCount === 1 ? "Interviewer" : "Candidate";
-            setRole(role); // New state to store role
-            console.log(role);
+            setRole(role);
+            console.log("Room info:", role, "User count:", userCount);
         });
 
         socket.on("user-joined", async (socketId) => {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(new RTCSessionDescription(offer));
-            socket.emit("offer", { roomId, offer });
+            console.log("User joined:", socketId);
+            if (peerConnectionRef.current?.signalingState === "closed") {
+                console.log("Peer connection closed, creating new one");
+                pc = createPeerConnection();
+                peerConnectionRef.current = pc;
+                setPeerConnection(pc);
+            }
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(new RTCSessionDescription(offer));
+                socket.emit("offer", { roomId, offer });
+            } catch (error) {
+                console.error("Error creating offer:", error);
+            }
         });
 
         socket.on("offer", async (data) => {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(new RTCSessionDescription(answer));
-            socket.emit("answer", { roomId, answer });
+            if (peerConnectionRef.current?.signalingState === "closed") {
+                console.log("Peer connection closed, creating new one for offer");
+                pc = createPeerConnection();
+                peerConnectionRef.current = pc;
+                setPeerConnection(pc);
+            }
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(new RTCSessionDescription(answer));
+                socket.emit("answer", { roomId, answer });
+            } catch (error) {
+                console.error("Error handling offer:", error);
+            }
         });
 
         socket.on("answer", async (data) => {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            if (peerConnectionRef.current?.signalingState === "closed") {
+                console.log("Peer connection closed, ignoring answer");
+                return;
+            }
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } catch (error) {
+                console.error("Error handling answer:", error);
+            }
         });
 
         socket.on("ice-candidate", async (data) => {
+            if (peerConnectionRef.current?.signalingState === "closed") {
+                console.log("Peer connection closed, ignoring ICE candidate");
+                return;
+            }
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-            } catch (e) {
-                console.error("Error adding received ice candidate", e);
+            } catch (error) {
+                console.error("Error adding ICE candidate:", error);
             }
         });
 
         socket.on("user-disconnected", () => {
+            console.log("User disconnected");
             if (peerConnectionRef.current) {
                 peerConnectionRef.current.close();
+                peerConnectionRef.current = null;
+                setPeerConnection(null);
             }
         });
 
         return () => {
+            console.log("Cleaning up socket and peer connection");
             if (peerConnectionRef.current) {
                 peerConnectionRef.current.close();
+                peerConnectionRef.current = null;
+                setPeerConnection(null);
             }
             socket.off("user-joined");
             socket.off("offer");
             socket.off("answer");
             socket.off("ice-candidate");
             socket.off("user-disconnected");
+            socket.disconnect();
+            socketRef.current = null;
         };
-    }, [localStream]);
+    }, [localStream, roomId]);
 
     const handleSubmitReport = async () => {
         const supabase = createClientComponentClient();

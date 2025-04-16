@@ -1,4 +1,5 @@
 "use client";
+
 import {
     SandpackProvider,
     SandpackLayout,
@@ -7,7 +8,6 @@ import {
     SandpackPreview,
     SandpackFileExplorer,
     SandpackConsole,
-    Sandpack,
 } from "@codesandbox/sandpack-react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -19,6 +19,7 @@ import {
     ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import dynamic from "next/dynamic";
 const WhiteBoard = dynamic(
     () => import("@/components/white-board/white-board"),
     { ssr: false }
@@ -27,7 +28,6 @@ import { SANDBOX_TEMPLATES } from "@codesandbox/sandpack-react";
 import { CopyURLButton } from "@/components/copy-url-button";
 import { use, useEffect, useRef, useState } from "react";
 import CameraFeed from "@/components/camera-feed";
-import dynamic from "next/dynamic";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useCameraStore } from "@/store/useCameraStore";
 import { redirect, useRouter } from "next/navigation";
@@ -36,37 +36,31 @@ import { Button } from "@/components/ui/button";
 import { io, Socket } from "socket.io-client";
 
 interface MachineCodingPlaygroundProps {
-    params: Promise<{ slug: [TemplateType, string], category: string, questionId: string; }>;
+    params: Promise<{ slug: [TemplateType, string]; category: string; questionId: string }>;
 }
 
 type TemplateType = keyof typeof SANDBOX_TEMPLATES;
-export default function MachineCodingPlayground({
-    params,
-}: MachineCodingPlaygroundProps) {
+
+export default function MachineCodingPlayground({ params }: MachineCodingPlaygroundProps) {
     const router = useRouter();
     const resolvedParams = use(params);
     const template: TemplateType = resolvedParams.slug[0];
     const roomId = resolvedParams.slug[1];
     const { category, questionId } = resolvedParams;
-    const { isActivePage } = useCameraStore();
+    const { isActivePage, stream: localStream } = useCameraStore();
 
     const [question, setQuestion] = useState<any>(null);
     const [whiteboardOpen, setWhiteboardOpen] = useState(false);
-    const { username } = useAuthStore();
-
-
+    const [showCamera, setShowCamera] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [showCamera, setShowCamera] = useState(true);
-    const supabase = createClientComponentClient();
-
-    const { setIsActivePage } = useCameraStore();
-
-    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-    const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-    const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
+    const { username } = useAuthStore();
+
+    const supabase = createClientComponentClient();
+    const { setIsActivePage } = useCameraStore();
     const socketRef = useRef<Socket | null>(null);
+    const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
     const toggleCamera = () => {
         setShowCamera((prev) => !prev);
@@ -76,111 +70,190 @@ export default function MachineCodingPlayground({
         setWhiteboardOpen(!whiteboardOpen);
     };
 
-
     useEffect(() => {
-        // Set this page as an active camera page
         setIsActivePage(true);
-
-        // Cleanup function to avoid memory leaks
         return () => {
-            // We don't want to set isActivePage to false here
-            // as it would stop the camera stream when navigating within the app
-            // The actual stream cleanup happens in camera-feed.tsx
+            // Cleanup handled in CameraFeed.tsx
         };
     }, [setIsActivePage]);
+
     if (!isActivePage) {
-        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&template=${template}&roomId=${roomId}`)
+        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&template=${template}&roomId=${roomId}`);
     }
 
     useEffect(() => {
-        const startLocalStream = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                setLocalStream(stream);
-            } catch (err) {
-                console.error("Error accessing camera:", err);
-            }
-        };
-
-        startLocalStream();
-    }, []);
-
-    useEffect(() => {
-        if (!localStream) return;
+        if (!localStream || !roomId) {
+            console.warn("Skipping socket initialization: missing localStream or roomId", { localStream, roomId });
+            return;
+        }
 
         const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000", {
-            path: '/socketio',
+            path: "/socketio",
+            transports: ["websocket", "polling"],
         });
         socketRef.current = socket;
 
-        const pc = new RTCPeerConnection({
-            iceServers: [
-                {
-                    urls: "stun:stun.l.google.com:19302",
-                },
-            ],
+        socket.on("connect", () => {
+            console.log("Socket.IO connected to", process.env.NEXT_PUBLIC_SOCKET_URL);
+        });
+        socket.on("connect_error", (error) => {
+            console.error("Socket.IO connection error:", error.message);
+        });
+        socket.on("disconnect", (reason) => {
+            console.log("Socket.IO disconnected:", reason);
         });
 
-        localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+        const createPeerConnection = () => {
+            const pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: "stun:stun.l.google.com:19302" },
+                    {
+                        urls: "turn:openrelay.metered.ca:80",
+                        username: "openrelayproject",
+                        credential: "openrelayproject",
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject",
+                        credential: "openrelayproject",
+                    },
+                ],
+            });
 
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit("ice-candidate", { roomId, candidate: event.candidate });
-            }
+            localStream.getTracks().forEach((track) => {
+                pc.addTrack(track, localStream);
+                console.log("Added track:", { kind: track.kind, enabled: track.enabled, readyState: track.readyState });
+            });
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit("ice-candidate", { roomId, candidate: event.candidate });
+                    console.log("Sent ICE candidate:", event.candidate);
+                }
+            };
+
+            pc.ontrack = (event) => {
+                const [remoteStream] = event.streams;
+                console.log("Received remote stream:", remoteStream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
+                setRemoteStream(remoteStream);
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                console.log("ICE connection state:", pc.iceConnectionState);
+                if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+                    console.log("ICE connection failed or disconnected, restarting ICE");
+                    pc.restartIce();
+                }
+            };
+
+            pc.onicegatheringstatechange = () => {
+                console.log("ICE gathering state:", pc.iceGatheringState);
+            };
+
+            pc.onconnectionstatechange = () => {
+                console.log("Connection state:", pc.connectionState);
+            };
+
+            return pc;
         };
 
-        pc.ontrack = (event) => {
-            const [remoteStream] = event.streams;
-            setRemoteStream(remoteStream);
-        };
-
+        let pc = createPeerConnection();
         peerConnectionRef.current = pc;
-        setPeerConnection(pc);
 
         socket.emit("join-room", roomId);
 
+        socket.on("room-info", (roomInfo) => {
+            const userCount = roomInfo.userCount;
+            console.log("Room info: User count:", userCount);
+        });
+
         socket.on("user-joined", async (socketId) => {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(new RTCSessionDescription(offer));
-            socket.emit("offer", { roomId, offer });
+            console.log("User joined:", socketId);
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, creating new one");
+                pc = createPeerConnection();
+                peerConnectionRef.current = pc;
+            }
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(new RTCSessionDescription(offer));
+                socket.emit("offer", { roomId, offer });
+                console.log("Sent offer:", offer);
+            } catch (error) {
+                console.error("Error creating offer:", error);
+            }
         });
 
         socket.on("offer", async (data) => {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(new RTCSessionDescription(answer));
-            socket.emit("answer", { roomId, answer });
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, creating new one for offer");
+                pc = createPeerConnection();
+                peerConnectionRef.current = pc;
+            }
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(new RTCSessionDescription(answer));
+                socket.emit("answer", { roomId, answer });
+                console.log("Sent answer:", answer);
+            } catch (error) {
+                console.error("Error handling offer:", error);
+            }
         });
 
         socket.on("answer", async (data) => {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, ignoring answer");
+                return;
+            }
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } catch (error) {
+                console.error("Error handling answer:", error);
+            }
         });
 
         socket.on("ice-candidate", async (data) => {
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, ignoring ICE candidate");
+                return;
+            }
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-            } catch (e) {
-                console.error("Error adding received ice candidate", e);
+                console.log("Added ICE candidate:", data.candidate);
+            } catch (error) {
+                console.error("Error adding ICE candidate:", error);
             }
         });
 
         socket.on("user-disconnected", () => {
+            console.log("User disconnected");
             if (peerConnectionRef.current) {
                 peerConnectionRef.current.close();
+                peerConnectionRef.current = null;
+                setRemoteStream(null);
             }
         });
 
         return () => {
+            console.log("Cleaning up socket and peer connection");
             if (peerConnectionRef.current) {
                 peerConnectionRef.current.close();
+                peerConnectionRef.current = null;
             }
-            socket.off("user-joined");
-            socket.off("offer");
-            socket.off("answer");
-            socket.off("ice-candidate");
-            socket.off("user-disconnected");
+            if (socketRef.current) {
+                socketRef.current.off("user-joined");
+                socketRef.current.off("offer");
+                socketRef.current.off("answer");
+                socketRef.current.off("ice-candidate");
+                socketRef.current.off("user-disconnected");
+                socketRef.current.off("room-info");
+                socketRef.current.disconnect();
+                socketRef.current = null;
+            }
+            setRemoteStream(null);
         };
-    }, [localStream]);
+    }, [localStream, roomId]);
 
     useEffect(() => {
         async function loadQuestion() {
@@ -247,7 +320,7 @@ export default function MachineCodingPlayground({
                 {showCamera && <CameraFeed localStream={localStream} remoteStream={remoteStream} />}
             </div>
             <div className="hidden sm:block">
-                <div className=" place-self-end">
+                <div className="place-self-end">
                     <Button
                         onClick={toggleCamera}
                         variant="destructive"

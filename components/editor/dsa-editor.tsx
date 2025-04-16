@@ -294,7 +294,19 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
         const createPeerConnection = () => {
             const pc = new RTCPeerConnection({
-                iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+                iceServers: [
+                    { urls: "stun:stun.l.google.com:19302" },
+                    {
+                        urls: "turn:openrelay.metered.ca:80",
+                        username: "openrelayproject",
+                        credential: "openrelayproject",
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject",
+                        credential: "openrelayproject",
+                    },
+                ],
             });
 
             localStream.getTracks().forEach((track) => {
@@ -317,9 +329,18 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
             pc.oniceconnectionstatechange = () => {
                 console.log("ICE connection state:", pc.iceConnectionState);
-                if (pc.iceConnectionState === "failed") {
+                if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+                    console.log("ICE connection failed or disconnected, restarting ICE");
                     pc.restartIce();
                 }
+            };
+
+            pc.onicegatheringstatechange = () => {
+                console.log("ICE gathering state:", pc.iceGatheringState);
+            };
+
+            pc.onconnectionstatechange = () => {
+                console.log("Connection state:", pc.connectionState);
             };
 
             return pc;

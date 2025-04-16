@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useCameraStore } from "@/store/useCameraStore";
 import QuestionPageContent from "./QuestionPageContent";
 
 export default function QuestionPageWrapper({
@@ -9,7 +8,6 @@ export default function QuestionPageWrapper({
 }: {
     params: Promise<{ category?: string; questionId?: string; roomId?: string }>;
 }) {
-    const { setIsActivePage } = useCameraStore();
     const [resolvedParams, setResolvedParams] = useState<{
         category?: string;
         questionId?: string;
@@ -17,13 +15,11 @@ export default function QuestionPageWrapper({
     } | null>(null);
 
     useEffect(() => {
-        setIsActivePage(true);
-
         // Resolve the params
         params.then(setResolvedParams).catch((err) => {
             console.error("Failed to resolve params:", err);
         });
-    }, [params, setIsActivePage]);
+    }, [params]);
 
     if (!resolvedParams) {
         return <div>Loading...</div>; // Or some other loading state

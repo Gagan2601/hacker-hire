@@ -11,7 +11,7 @@ export default function CameraLayoutManager({ children }: { children: React.Reac
     useEffect(() => {
         const isCameraPage = pathname
             ? pathname.includes("/interview/setup-camera") ||
-            pathname.match(/\/interview\/[^/]+\/[^/]+\/[^/]+$/)
+            pathname.match(/\/interview\/[^/]+\/[^/]+\/[^/]+$/) || pathname.match(/\/interview\/[^/]+\/[^/]+\/[^/]+\/[^/]+$/)
             : false;
 
         if (!isCameraPage && isActivePage) {

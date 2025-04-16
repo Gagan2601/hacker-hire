@@ -3,7 +3,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "socket": "node server.js"
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "^2.20.0",
@@ -23,6 +24,7 @@
     "autoprefixer": "10.4.20",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "express": "^5.1.0",
     "face-api.js": "^0.22.2",
     "firebase": "^8.10.1",
     "lucide-react": "^0.468.0",

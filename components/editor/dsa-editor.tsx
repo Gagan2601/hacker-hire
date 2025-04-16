@@ -56,8 +56,19 @@ interface DsaPlaygroundProps {
 
 const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question, category, questionId, roomId }) => {
     // Editor and realtime collaboration state
-    const { isActivePage } = useCameraStore();
+    const { isActivePage, setIsActivePage } = useCameraStore();
     const router = useRouter();
+    useEffect(() => {
+        // Set this page as an active camera page
+        setIsActivePage(true);
+
+        // Cleanup function to avoid memory leaks
+        return () => {
+            // We don't want to set isActivePage to false here
+            // as it would stop the camera stream when navigating within the app
+            // The actual stream cleanup happens in camera-feed.tsx
+        };
+    }, [setIsActivePage]);
     if (!isActivePage) {
         redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&roomId=${roomId}`)
     }
@@ -262,8 +273,8 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
     useEffect(() => {
         if (!localStream) return;
 
-        const socket = io({
-            path: '/api/socketio',
+        const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000", {
+            path: '/socketio',
         });
         socketRef.current = socket;
 

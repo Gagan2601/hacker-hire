@@ -49,9 +49,6 @@ export default function MachineCodingPlayground({
     const roomId = resolvedParams.slug[1];
     const { category, questionId } = resolvedParams;
     const { isActivePage } = useCameraStore();
-    if (!isActivePage) {
-        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&template=${template}&roomId=${roomId}`)
-    }
 
     const [question, setQuestion] = useState<any>(null);
     const [whiteboardOpen, setWhiteboardOpen] = useState(false);
@@ -91,6 +88,9 @@ export default function MachineCodingPlayground({
             // The actual stream cleanup happens in camera-feed.tsx
         };
     }, [setIsActivePage]);
+    if (!isActivePage) {
+        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&template=${template}&roomId=${roomId}`)
+    }
 
     useEffect(() => {
         const startLocalStream = async () => {
@@ -108,8 +108,8 @@ export default function MachineCodingPlayground({
     useEffect(() => {
         if (!localStream) return;
 
-        const socket = io({
-            path: '/api/socketio',
+        const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000", {
+            path: '/socketio',
         });
         socketRef.current = socket;
 

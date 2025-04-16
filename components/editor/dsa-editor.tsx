@@ -292,36 +292,41 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             console.log("Socket.IO disconnected:", reason);
         });
 
-        // Function to create a new RTCPeerConnection
         const createPeerConnection = () => {
             const pc = new RTCPeerConnection({
-                iceServers: [
-                    {
-                        urls: "stun:stun.l.google.com:19302",
-                    },
-                ],
+                iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             });
 
-            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+            localStream.getTracks().forEach((track) => {
+                pc.addTrack(track, localStream);
+                console.log("Added track:", { kind: track.kind, enabled: track.enabled, readyState: track.readyState });
+            });
 
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     socket.emit("ice-candidate", { roomId, candidate: event.candidate });
+                    console.log("Sent ICE candidate:", event.candidate);
                 }
             };
 
             pc.ontrack = (event) => {
                 const [remoteStream] = event.streams;
+                console.log("Received remote stream:", remoteStream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
                 setRemoteStream(remoteStream);
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                console.log("ICE connection state:", pc.iceConnectionState);
+                if (pc.iceConnectionState === "failed") {
+                    pc.restartIce();
+                }
             };
 
             return pc;
         };
 
-        // Initialize first peer connection
         let pc = createPeerConnection();
         peerConnectionRef.current = pc;
-        setPeerConnection(pc);
 
         socket.emit("join-room", roomId);
 
@@ -334,41 +339,41 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
         socket.on("user-joined", async (socketId) => {
             console.log("User joined:", socketId);
-            if (peerConnectionRef.current?.signalingState === "closed") {
-                console.log("Peer connection closed, creating new one");
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, creating new one");
                 pc = createPeerConnection();
                 peerConnectionRef.current = pc;
-                setPeerConnection(pc);
             }
             try {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(new RTCSessionDescription(offer));
                 socket.emit("offer", { roomId, offer });
+                console.log("Sent offer:", offer);
             } catch (error) {
                 console.error("Error creating offer:", error);
             }
         });
 
         socket.on("offer", async (data) => {
-            if (peerConnectionRef.current?.signalingState === "closed") {
-                console.log("Peer connection closed, creating new one for offer");
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, creating new one for offer");
                 pc = createPeerConnection();
                 peerConnectionRef.current = pc;
-                setPeerConnection(pc);
             }
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(new RTCSessionDescription(answer));
                 socket.emit("answer", { roomId, answer });
+                console.log("Sent answer:", answer);
             } catch (error) {
                 console.error("Error handling offer:", error);
             }
         });
 
         socket.on("answer", async (data) => {
-            if (peerConnectionRef.current?.signalingState === "closed") {
-                console.log("Peer connection closed, ignoring answer");
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, ignoring answer");
                 return;
             }
             try {
@@ -379,12 +384,13 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         });
 
         socket.on("ice-candidate", async (data) => {
-            if (peerConnectionRef.current?.signalingState === "closed") {
-                console.log("Peer connection closed, ignoring ICE candidate");
+            if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
+                console.log("Peer connection closed or null, ignoring ICE candidate");
                 return;
             }
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                console.log("Added ICE candidate:", data.candidate);
             } catch (error) {
                 console.error("Error adding ICE candidate:", error);
             }
@@ -395,7 +401,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             if (peerConnectionRef.current) {
                 peerConnectionRef.current.close();
                 peerConnectionRef.current = null;
-                setPeerConnection(null);
+                setRemoteStream(null);
             }
         });
 
@@ -404,15 +410,17 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             if (peerConnectionRef.current) {
                 peerConnectionRef.current.close();
                 peerConnectionRef.current = null;
-                setPeerConnection(null);
             }
-            socket.off("user-joined");
-            socket.off("offer");
-            socket.off("answer");
-            socket.off("ice-candidate");
-            socket.off("user-disconnected");
-            socket.disconnect();
-            socketRef.current = null;
+            if (socketRef.current) {
+                socketRef.current.off("user-joined");
+                socketRef.current.off("offer");
+                socketRef.current.off("answer");
+                socketRef.current.off("ice-candidate");
+                socketRef.current.off("user-disconnected");
+                socketRef.current.disconnect();
+                socketRef.current = null;
+            }
+            setRemoteStream(null);
         };
     }, [localStream, roomId]);
 

@@ -17,15 +17,14 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const canvasRefRemote = useRef<HTMLCanvasElement>(null);
     const [position, setPosition] = useState({ x: 100, y: 100 });
     const [size] = useState({ width: 320, height: 240 });
     const isFixedPage = pathname === "/interview/setup-camera";
-    const aspectRatio = 320 / 240;
     const [isSwapped, setIsSwapped] = useState(false);
-    const canvasRefRemote = useRef<HTMLCanvasElement>(null);
 
     const handleSwapVideos = () => {
-        setIsSwapped(prev => !prev);
+        setIsSwapped((prev) => !prev);
     };
 
     // Load face-api models
@@ -41,7 +40,7 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
         const startCamera = async () => {
             if (!stream && isActivePage) {
                 try {
-                    const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    const newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                     setStream(newStream);
                 } catch (err) {
                     console.error("Error accessing camera:", err);
@@ -57,29 +56,25 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
         };
     }, [isActivePage, stream, setStream, stopStream]);
 
-    // Set stream to local video
+    // Set local stream
     useEffect(() => {
-        if (localVideoRef.current && stream && !isSwapped) {
-            localVideoRef.current.srcObject = stream;
-        }
-        if (remoteVideoRef.current && stream && isSwapped) {
-            remoteVideoRef.current.srcObject = stream;
+        const videoRef = isSwapped ? remoteVideoRef : localVideoRef;
+        if (videoRef.current && stream) {
+            videoRef.current.srcObject = stream;
+            console.log("Local stream set:", stream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
         }
     }, [stream, isSwapped]);
 
-
-    // Set stream to remote video
+    // Set remote stream
     useEffect(() => {
-        if (remoteVideoRef.current && remoteStream && !isSwapped) {
-            remoteVideoRef.current.srcObject = remoteStream;
-        }
-        if (localVideoRef.current && remoteStream && isSwapped) {
-            localVideoRef.current.srcObject = remoteStream;
+        const videoRef = isSwapped ? localVideoRef : remoteVideoRef;
+        if (videoRef.current && remoteStream) {
+            videoRef.current.srcObject = remoteStream;
+            console.log("Remote stream set:", remoteStream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
         }
     }, [remoteStream, isSwapped]);
 
-
-    // Face Detection
+    // Face detection for local stream
     useEffect(() => {
         let interval: NodeJS.Timeout;
 
@@ -131,7 +126,7 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
         return () => clearInterval(interval);
     }, [stream, isSwapped]);
 
-
+    // Face detection for remote stream
     useEffect(() => {
         let interval: NodeJS.Timeout;
 
@@ -183,12 +178,9 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
         return () => clearInterval(interval);
     }, [remoteStream, isSwapped]);
 
-
-
-
     if (!isActivePage) return null;
 
-    const VideoWithCanvas = (
+    const LocalVideoWithCanvas = (
         <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
             <video
                 ref={localVideoRef}
@@ -197,15 +189,24 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
                 muted
                 className="w-full h-full object-cover rounded"
             />
-            <canvas
-                ref={canvasRef}
-                className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none"
+            <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none" />
+        </div>
+    );
+
+    const RemoteVideoWithCanvas = (
+        <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
+            <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover rounded"
             />
+            <canvas ref={canvasRefRemote} className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none" />
         </div>
     );
 
     return isFixedPage ? (
-        <div className="w-full max-w-md">{VideoWithCanvas}</div>
+        <div className="w-full max-w-md">{LocalVideoWithCanvas}</div>
     ) : (
         <div className="w-full max-w-md">
             <Rnd
@@ -225,53 +226,34 @@ export default function CameraFeed({ localStream, remoteStream }: CameraFeedProp
                     {isSwapped ? (
                         <>
                             {/* Local as main */}
-                            <div className="w-full h-full">{VideoWithCanvas}</div>
+                            {LocalVideoWithCanvas}
                             <div
                                 onClick={handleSwapVideos}
                                 className="absolute bottom-2 right-2 w-1/4 h-auto border-2 border-white rounded shadow-lg overflow-hidden cursor-pointer"
                             >
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    className="w-full h-full object-cover rounded"
-                                />
-                                <canvas
-                                    ref={canvasRefRemote}
-                                    className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none"
-                                />
+                                {remoteStream ? RemoteVideoWithCanvas : <div className="w-full h-full bg-gray-800 rounded" />}
                             </div>
                         </>
                     ) : (
                         <>
                             {/* Remote as main */}
-                            {remoteStream && remoteStream.getTracks().some(track => track.readyState === "live") ? (
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    className="w-full h-full object-cover rounded"
-                                />
+                            {remoteStream ? (
+                                RemoteVideoWithCanvas
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-white text-sm italic bg-gray-800 rounded">
                                     Waiting for another user to join...
                                 </div>
                             )}
-                            <canvas
-                                ref={canvasRefRemote}
-                                className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none"
-                            />
                             <div
                                 onClick={handleSwapVideos}
                                 className="absolute bottom-2 right-2 w-1/4 h-auto border-2 border-white rounded shadow-lg overflow-hidden cursor-pointer"
                             >
-                                {VideoWithCanvas}
+                                {LocalVideoWithCanvas}
                             </div>
                         </>
                     )}
                 </div>
             </Rnd>
-
         </div>
     );
 }

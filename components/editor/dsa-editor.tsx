@@ -3,102 +3,90 @@
 import React, { useEffect, useRef, useState } from "react";
 import dynamic from 'next/dynamic';
 import { io, Socket } from "socket.io-client";
-
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 
-// Dynamically import Editor to avoid SSR issues
 const Editor = dynamic(
     () => import("@monaco-editor/react"),
     { ssr: false }
 );
 
-// Dynamically import WhiteBoard to avoid SSR issues
 const WhiteBoard = dynamic(
     () => import("@/components/white-board/white-board"),
     { ssr: false }
 );
 
-// Shadcn/ui components
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
-// Resizable layout components
-import {
-    ResizablePanel,
-    ResizablePanelGroup,
-    ResizableHandle,
-} from "@/components/ui/resizable";
-
-// Firebase config
+import { ResizablePanel, ResizablePanelGroup, ResizableHandle } from "@/components/ui/resizable";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import firebaseConfig from "@/config/firebaseConfig";
-
-// Types for monaco editor - import but don't use directly during SSR
 import type * as monacoTypes from "monaco-editor";
 import CameraFeed from "../camera-feed";
 import { CopyURLButton } from "../copy-url-button";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCameraStore } from "@/store/useCameraStore";
-import { redirect } from "next/navigation";
-import { Button } from "../ui/button";
-import { useRouter } from "next/navigation";
+import { redirect, useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 interface DsaPlaygroundProps {
     modifiedContent: string;
-    question?: any; // Optional, in case you need question details
+    question?: any;
     category: string;
     questionId?: string;
     roomId?: string;
 }
 
 const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question, category, questionId, roomId }) => {
-    // Editor and realtime collaboration state
     const { isActivePage, setIsActivePage } = useCameraStore();
     const router = useRouter();
-    useEffect(() => {
-        // Set this page as an active camera page
-        setIsActivePage(true);
+    const { username } = useAuthStore();
+    const supabase = createClientComponentClient();
 
-        // Cleanup function to avoid memory leaks
+    useEffect(() => {
+        setIsActivePage(true);
         return () => {
-            // We don't want to set isActivePage to false here
-            // as it would stop the camera stream when navigating within the app
-            // The actual stream cleanup happens in camera-feed.tsx
+            // Cleanup handled in CameraFeed.tsx
         };
     }, [setIsActivePage]);
+
     if (!isActivePage) {
-        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&roomId=${roomId}`)
+        redirect(`/interview/setup-camera?category=${category}&questionId=${questionId}&roomId=${roomId}`);
     }
+
     const [editor, setEditor] = useState<monacoTypes.editor.IStandaloneCodeEditor | null>(null);
     const [editorLoaded, setEditorLoaded] = useState(false);
-    const { username } = useAuthStore();
-    const [code, setCode] = useState<string>(
-        "// Write your solution here\nconsole.log('hello!!');"
-    );
+    const [code, setCode] = useState<string>("// Write your solution here\nconsole.log('hello!!');");
     const [language, setLanguage] = useState<string>("javascript");
     const [firepad, setFirepad] = useState<any>(null);
     const [firebaseInstance, setFirebaseInstance] = useState<any>(null);
-
-    // WebRTC state
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-    const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
     const socketRef = useRef<Socket | null>(null);
-
     const [input, setInput] = useState<string>("");
     const [output, setOutput] = useState<string>("");
     const [showCamera, setShowCamera] = useState(true);
     const [role, setRole] = useState("");
-    const [isCleared, setIsCleared] = useState(false);
+    const [whiteboardOpen, setWhiteboardOpen] = useState(false);
+    const [reportDialogOpen, setReportDialogOpen] = useState(false);
+    const [reportForm, setReportForm] = useState({
+        performanceRating: "3",
+        notes: "",
+        isCleared: "Yes",
+    });
 
     const toggleCamera = () => {
         setShowCamera((prev) => !prev);
     };
-    const [whiteboardOpen, setWhiteboardOpen] = useState(false);
+
+    const toggleWhiteboard = () => {
+        setWhiteboardOpen(!whiteboardOpen);
+    };
 
     function handleEditorDidMount(editorInstance: monacoTypes.editor.IStandaloneCodeEditor) {
         editorInstance.updateOptions({ readOnly: false });
@@ -112,40 +100,30 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             try {
                 const firebase = (await import('firebase/app')).default;
                 await import('firebase/database');
-
                 if (!firebase.apps.length) {
                     firebase.initializeApp(firebaseConfig);
                 }
-
                 setFirebaseInstance(firebase);
                 console.log("Firebase initialized successfully");
             } catch (error) {
                 console.error("Error initializing Firebase:", error);
             }
         };
-
         initFirebase();
     }, []);
 
     const initializeFirepad = async () => {
         if (!editor || !firebaseInstance) return;
-
         try {
             const { fromMonaco } = await import('@hackerrank/firepad');
             const sanitizedKey = "dsa-code".replace(/[\\.#$\\[\\\]]/g, "");
             const dbRef = firebaseInstance.database().ref(`${roomId}/${sanitizedKey}`);
-
-            let name = username;
-            if (!name) {
-                name = "User";
-            }
-
+            let name = username || "User";
             console.log("Initializing Firepad with editor and DB reference");
             editor.updateOptions({ readOnly: false });
             const newFirepad = fromMonaco(dbRef, editor);
             newFirepad.setUserName(name);
             setFirepad(newFirepad);
-
             if (editor.getValue().trim() === "") {
                 editor.setValue(code);
             }
@@ -156,7 +134,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
     const handleLanguageChange = (newLanguage: string) => {
         setLanguage(newLanguage);
-
         if (firepad && firebaseInstance) {
             const userId = firepad.getConfiguration("userId");
             const sanitizedKey = "dsa-code".replace(/[\\.#$\\[\\\]]/g, "");
@@ -164,7 +141,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             userRef.remove();
             firepad.dispose();
             setFirepad(null);
-
             if (editor) {
                 editor.updateOptions({ readOnly: false });
                 initializeFirepad();
@@ -177,9 +153,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             console.log("Editor or Firebase not loaded yet");
             return;
         }
-
         initializeFirepad();
-
         return () => {
             if (firepad && firebaseInstance) {
                 try {
@@ -201,27 +175,22 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
 
     async function runCode() {
         const currentCode = editor ? editor.getValue() : code;
-
         const languageMapping: { [key: string]: number } = {
             javascript: 63,
             cpp: 52,
             python: 71,
             java: 62,
         };
-
         const languageId = languageMapping[language] || 63;
         const encodedSourceCode = btoa(currentCode);
         const encodedInput = btoa(input);
-
         const body = {
             source_code: encodedSourceCode,
             language_id: languageId,
             stdin: encodedInput,
         };
-
         try {
             setOutput("Running code...");
-
             const response = await fetch(
                 "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=true&wait=true",
                 {
@@ -229,15 +198,12 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                     headers: {
                         "Content-Type": "application/json",
                         "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
-                        "x-rapidapi-key":
-                            process.env.NEXT_PUBLIC_JUDGE0_API_KEY || "",
+                        "x-rapidapi-key": process.env.NEXT_PUBLIC_JUDGE0_API_KEY || "",
                     },
                     body: JSON.stringify(body),
                 }
             );
-
             const data = await response.json();
-
             if (data.stdout) {
                 setOutput(atob(data.stdout));
             } else if (data.compile_output) {
@@ -253,10 +219,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         }
     };
 
-    const toggleWhiteboard = () => {
-        setWhiteboardOpen(!whiteboardOpen);
-    };
-
     useEffect(() => {
         const startLocalStream = async () => {
             try {
@@ -266,7 +228,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 console.error("Error accessing camera:", err);
             }
         };
-
         startLocalStream();
     }, []);
 
@@ -275,13 +236,11 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             console.warn("Skipping socket initialization: missing localStream or roomId", { localStream, roomId });
             return;
         }
-
         const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000", {
             path: "/socketio",
             transports: ["websocket", "polling"],
         });
         socketRef.current = socket;
-
         socket.on("connect", () => {
             console.log("Socket.IO connected to", process.env.NEXT_PUBLIC_SOCKET_URL);
         });
@@ -291,7 +250,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
         socket.on("disconnect", (reason) => {
             console.log("Socket.IO disconnected:", reason);
         });
-
         const createPeerConnection = () => {
             const pc = new RTCPeerConnection({
                 iceServers: [
@@ -308,25 +266,21 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                     },
                 ],
             });
-
             localStream.getTracks().forEach((track) => {
                 pc.addTrack(track, localStream);
                 console.log("Added track:", { kind: track.kind, enabled: track.enabled, readyState: track.readyState });
             });
-
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     socket.emit("ice-candidate", { roomId, candidate: event.candidate });
                     console.log("Sent ICE candidate:", event.candidate);
                 }
             };
-
             pc.ontrack = (event) => {
                 const [remoteStream] = event.streams;
                 console.log("Received remote stream:", remoteStream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
                 setRemoteStream(remoteStream);
             };
-
             pc.oniceconnectionstatechange = () => {
                 console.log("ICE connection state:", pc.iceConnectionState);
                 if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
@@ -334,30 +288,23 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                     pc.restartIce();
                 }
             };
-
             pc.onicegatheringstatechange = () => {
                 console.log("ICE gathering state:", pc.iceGatheringState);
             };
-
             pc.onconnectionstatechange = () => {
                 console.log("Connection state:", pc.connectionState);
             };
-
             return pc;
         };
-
         let pc = createPeerConnection();
         peerConnectionRef.current = pc;
-
         socket.emit("join-room", roomId);
-
         socket.on("room-info", (roomInfo) => {
             const userCount = roomInfo.userCount;
             const role = userCount === 1 ? "Interviewer" : "Candidate";
             setRole(role);
             console.log("Room info:", role, "User count:", userCount);
         });
-
         socket.on("user-joined", async (socketId) => {
             console.log("User joined:", socketId);
             if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
@@ -374,7 +321,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 console.error("Error creating offer:", error);
             }
         });
-
         socket.on("offer", async (data) => {
             if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
                 console.log("Peer connection closed or null, creating new one for offer");
@@ -391,7 +337,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 console.error("Error handling offer:", error);
             }
         });
-
         socket.on("answer", async (data) => {
             if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
                 console.log("Peer connection closed or null, ignoring answer");
@@ -403,7 +348,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 console.error("Error handling answer:", error);
             }
         });
-
         socket.on("ice-candidate", async (data) => {
             if (!peerConnectionRef.current || peerConnectionRef.current.signalingState === "closed") {
                 console.log("Peer connection closed or null, ignoring ICE candidate");
@@ -416,7 +360,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 console.error("Error adding ICE candidate:", error);
             }
         });
-
         socket.on("user-disconnected", () => {
             console.log("User disconnected");
             if (peerConnectionRef.current) {
@@ -425,7 +368,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                 setRemoteStream(null);
             }
         });
-
         return () => {
             console.log("Cleaning up socket and peer connection");
             if (peerConnectionRef.current) {
@@ -446,18 +388,27 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
     }, [localStream, roomId]);
 
     const handleSubmitReport = async () => {
-        const supabase = createClientComponentClient();
+        if (role !== "Interviewer") {
+            console.log("Only interviewers can submit reports");
+            return;
+        }
+        setReportDialogOpen(true);
+    };
+
+    const handleReportFormSubmit = async () => {
         const report = {
-            interviewer_name: role === "Interviewer" ? username : "",
-            candidate_name: role === "Candidate" ? username : "",
-            question_name: question?.question_name || "",
-            is_cleared: isCleared
+            interviewer_name: role === "Interviewer" ? username || "Unknown" : "",
+            candidate_name: role === "Candidate" ? username || "Unknown" : "Candidate",
+            question_name: question?.question_name || "Unknown",
+            performance_rating: parseInt(reportForm.performanceRating),
+            notes: reportForm.notes,
+            is_cleared: reportForm.isCleared === "Yes",
         };
 
         const { data, error } = await supabase
             .from("reports")
             .insert([report])
-            .select("*") // Fetch the inserted row
+            .select("*")
             .single();
 
         if (error) {
@@ -470,7 +421,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             return;
         }
 
-        // Navigate to the reports page with the report ID
+        setReportDialogOpen(false);
         router.push(`/reports/${data.id}`);
     };
 
@@ -479,7 +430,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
             <ResizablePanelGroup direction="horizontal" className="flex h-full w-full">
                 <ResizablePanel className="w-1/4 border p-4 overflow-y-auto">
                     <h2 className="text-2xl font-bold">{question?.question_name}</h2>
-
                     <ReactMarkdown
                         rehypePlugins={[rehypeHighlight]}
                         components={{
@@ -503,9 +453,9 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                 }
                                 return <strong>{children}</strong>;
                             },
-                            li: ({ children }) => {
-                                return <li className="mt-2">{children}</li>;
-                            },
+                            li: ({ children }) => (
+                                <li className="mt-2">{children}</li>
+                            ),
                             p: ({ children }) => {
                                 const text = String(children);
                                 if (text.match(/\*\*(M|P|i|n)\*\*/)) {
@@ -518,11 +468,9 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                         {modifiedContent}
                     </ReactMarkdown>
                 </ResizablePanel>
-
                 <ResizableHandle />
                 <ResizablePanel className="flex-1">
                     <ResizablePanelGroup direction="vertical" className="flex h-full">
-                        {/* Top: Code Editor with Language Selection */}
                         <ResizablePanel className="flex-1 border p-4">
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center space-x-2">
@@ -548,7 +496,7 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                     <Button
                                         onClick={toggleCamera}
                                         variant="destructive"
-                                        className=" hover:shadow-[0_20px_50px_rgba(255,0,0,0.7)]"
+                                        className="hover:shadow-[0_20px_50px_rgba(255,0,0,0.7)]"
                                     >
                                         {showCamera ? "Hide Camera" : "Show Camera"}
                                     </Button>
@@ -594,7 +542,6 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                                 )}
                             </div>
                         </ResizablePanel>
-
                         <ResizableHandle />
                         <ResizablePanel className="h-1/3 border p-4">
                             <Tabs defaultValue="input">
@@ -632,6 +579,64 @@ const DsaPlayground: React.FC<DsaPlaygroundProps> = ({ modifiedContent, question
                         {whiteboardOpen && (
                             <WhiteBoard roomId={roomId || ''} username={username ?? "User"} />
                         )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Submit Interview Report</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="performanceRating" className="col-span-1">Performance</Label>
+                            <Select
+                                value={reportForm.performanceRating}
+                                onValueChange={(value) => setReportForm({ ...reportForm, performanceRating: value })}
+                            >
+                                <SelectTrigger id="performanceRating" className="col-span-3">
+                                    {reportForm.performanceRating}
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="1">1 - Poor</SelectItem>
+                                    <SelectItem value="2">2 - Fair</SelectItem>
+                                    <SelectItem value="3">3 - Good</SelectItem>
+                                    <SelectItem value="4">4 - Very Good</SelectItem>
+                                    <SelectItem value="5">5 - Excellent</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="notes" className="col-span-1">Notes</Label>
+                            <Input
+                                id="notes"
+                                value={reportForm.notes}
+                                onChange={(e) => setReportForm({ ...reportForm, notes: e.target.value })}
+                                placeholder="Enter any notes about the interview..."
+                                className="col-span-3"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="isCleared" className="col-span-1">Cleared</Label>
+                            <Select
+                                value={reportForm.isCleared}
+                                onValueChange={(value) => setReportForm({ ...reportForm, isCleared: value })}
+                            >
+                                <SelectTrigger id="isCleared" className="col-span-3">
+                                    {reportForm.isCleared}
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Yes">Yes</SelectItem>
+                                    <SelectItem value="No">No</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setReportDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleReportFormSubmit}>Submit Report</Button>
                     </div>
                 </DialogContent>
             </Dialog>
